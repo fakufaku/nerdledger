@@ -7,6 +7,13 @@ from __future__ import division, print_function
 import dataset
 import datetime
 
+allowed_account_types = set([
+    'income',
+    'expense',
+    'bank',
+    'credit',
+    ])
+
 class Account:
     '''
     Attributes
@@ -17,36 +24,42 @@ class Account:
         underlying database
     '''
 
-
     def __init__(self, name, db):
+        '''
+        Initialize account
+
+        Parameters
+        ----------
+        name: str
+            Unique name of the account
+        db: dataset object
+            Link to the sqlite database through dataset module
+        '''
 
         self.name = name
         self.db = db
 
+        # extract account info from the db
         itself = self.db['accounts'].find_one(name=self.name)
 
+        # set type if available
         if 'type' in itself:
             self.type = itself['type']
         else:
             self.type = None
 
-        if 'opening_balance' in itself:
-            if itself['opening_balance'] is None:
-                self.opening_balance = 0.
-                self.db['accounts'].update(dict(name=self.name, opening_balance=0.), ['name'])
-            else:
-                self.opening_balance = itself['opening_balance']
-        else:
+        # set balance if available
+        if 'opening_balance' not in itself or itself['opening_balance'] is None:
+            # set to zero if this was never done
             self.opening_balance = 0.
-
-        self.record_template = (u"{id:>5}  {date:10.10}  {description:40.40} "
-                              + u"{destination:30.30} {source:30.30} "
-                              + u"{amount: 8.2f} {0: 8.2f}")
+            self.db['accounts'].update(dict(name=self.name, opening_balance=0.), ['name'])
+        else:
+            self.opening_balance = itself['opening_balance']
 
     def set_type(self, account_type):
         ''' Updates the account type (account or expense) '''
 
-        if account_type == 'income' or account_type == 'expense' or account_type == 'credit':
+        if account_type in allowed_account_types:
             data = dict(name=self.name, type=account_type)
             self.db['accounts'].update(data, ['name'])
             self.type = account_type
@@ -60,22 +73,10 @@ class Account:
         data = dict(name=self.name, opening_balance=balance)
         self.db['accounts'].update(data, ['name'])
 
-    def balance(self, make_str=False):
+    def transactions(self):
         '''
         String representation of the account. We format and print all transactions
         '''
-
-        if make_str:
-            s =  u'Account: {} (type: {})\n'.format(self.name, self.type)
-            s += u''.join('-' for c in s) + '\n'
-
-        # get the account types
-        accounts_rec = self.db['accounts'].all()
-        account_types = dict()
-        for acc in accounts_rec:
-            account_types[acc['name']] = acc['type']
-
-
         # query the db for all transactions involving this account
         query_string = ( 
                          'SELECT * FROM transactions '
@@ -89,6 +90,8 @@ class Account:
         balance = self.opening_balance
         number_records = 0
 
+        # add balance to transactions and store in list
+        all_transactions = []
         for transaction in transactions:
             number_records += 1
 
@@ -96,29 +99,49 @@ class Account:
             src = transaction['source']
             dst = transaction['destination']
 
-            if account_types[dst] == 'credit':
-                transaction['amount'] *= -1
-
             if self.name == src:
                 balance -= transaction['amount']
             elif self.name == dst:
                 balance += transaction['amount']
 
-            if make_str:
-                s += self.record_template.format(balance, **transaction) + '\n'
+            transaction['balance'] = balance
 
-        if make_str:
-            s += u'Number of transactions: {}'.format(number_records)
-            return s
-        else:
-            return balance
+            all_transactions.append(transaction)
+
+        return all_transactions
+
+    def balance(self):
+        return round(self.transactions()[-1]['balance'],2)
+
+    def balance_sheet(self, limit=None):
+
+        # count lines form the most recent one when limiting
+        if limit is not None:
+            limit *= -1
+
+        # Template for one line
+        line = (u"{id:>5}  {date:10.10}  {description:40.40} "
+              + u"{destination:30.30} {source:30.30} "
+              + u"{amount: 8.2f} {balance: 8.2f}")
+
+        s =  u'Account: {} (type: {})\n'.format(self.name, self.type)
+        s += u''.join('-' for c in s) + '\n'
+
+        transactions = self.transactions()
+        for transaction in transactions[limit:]:
+            s += line.format(**transaction) + '\n'
+
+        if limit is None:
+            s += u'Number of transactions: {}'.format(len(transactions))
+
+        return s
 
     def __str__(self):
         s = '{:30.30}  {:10.10}  {:8.2f}'.format(self.name, self.type, self.balance())
         return s
 
     def __repr__(self):
-        return self.balance(make_str=True)
+        return self.balance_sheet()
 
 
 class Ledger:
@@ -144,7 +167,7 @@ class Ledger:
         ''' Access accounts using the bracket operator too '''
         # error checking
         if account_name not in self.accounts:
-            raise ValueErro('No such account')
+            raise ValueError('No such account')
 
         return getattr(self, 'a_' + account_name)
 
@@ -153,10 +176,17 @@ class Ledger:
 
         s =  u'List of accounts:\n'
         s += u''.join('-' for c in s) + '\n'
-        for account in sorted(self.accounts):
-            s += self[account].__str__() + '\n'
 
-        return s
+        # Print each account category separately
+        for a_type in sorted(allowed_account_types):
+            s += a_type.upper() + ':\n'
+            for account in sorted(self.accounts):
+                if self[account].type == a_type:
+                    s += '  ' + self[account].__str__() + '\n'
+            s += '\n'
+
+        # remove final newline
+        return s[:-1]
 
     def open_account(self, name, type='expense', balance=0.):
         ''' Create a new account '''
@@ -173,7 +203,8 @@ class Ledger:
 
     def transfer(self, 
             amount, source_account, destination_account,
-            description=None, date=None):
+            description=None, date=None,
+            summary=True):
         ''' 
         Add a transaction in the ledger
         
@@ -187,8 +218,10 @@ class Ledger:
             Destination account
         description: str, optional
             Description of the transaction
-        date:  str or datetime.datetime
-            Date of the transaction
+        date: str or datetime.datetime, optional
+            Date of the transaction (default now)
+        summary: boolean, optional
+            Prints a summary of source and destination account (default True)
         '''
 
         if description is None:
@@ -231,4 +264,8 @@ class Ledger:
         # write to db
         self.db['transactions'].insert(new_transaction)
 
-        # we probably want to sent back a string with last few rows of both accounts
+        # Print summary of both accounts
+        if summary:
+            s = self[new_transaction['source']].balance_sheet(limit=5)
+            s += self[new_transaction['destination']].balance_sheet(limit=5)
+            print(s, end='')
