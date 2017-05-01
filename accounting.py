@@ -1,5 +1,16 @@
 '''
-This is a simple accounting software for home finances
+Accounting
+==========
+
+This is a simple accounting software for home finances.
+
+It is designed to take advantage of autocompletion in the ipython console and
+to allow for batch processing for monthly payments.
+
+>>> import accounting
+>>> ledger = accounting.Ledger('my_ledger.db')
+>>> ledger.a_light_and_heat.balance_sheet()
+>>> ledger.transfer(250.30, ledger.a_bank, ledger.a_health_insurance, description='Monthly premiums')
 '''
 
 from __future__ import division, print_function
@@ -7,12 +18,12 @@ from __future__ import division, print_function
 import dataset
 import datetime
 
-allowed_account_types = set([
-    'income',
-    'expense',
+allowed_account_types = [
     'bank',
     'credit',
-    ])
+    'income',
+    'expense',
+    ]
 
 class Account:
     '''
@@ -110,8 +121,16 @@ class Account:
 
         return all_transactions
 
-    def balance(self):
-        return round(self.transactions()[-1]['balance'],2)
+    def balance(self, display=True):
+        ''' 
+        Computes balance of account. Optional display argument to use
+        accounting sign convention (income and credit increase on withdrawal)
+        '''
+        if display:
+            sign = -1 if self.type == 'credit' or self.type == 'income' else 1
+        else:
+            sign = 1
+        return sign * round(self.transactions()[-1]['balance'],2)
 
     def balance_sheet(self, limit=None):
 
@@ -120,16 +139,50 @@ class Account:
             limit *= -1
 
         # Template for one line
+        '''
         line = (u"{id:>5}  {date:10.10}  {description:40.40} "
               + u"{destination:30.30} {source:30.30} "
               + u"{amount: 8.2f} {balance: 8.2f}")
+        '''
+
+        line_in = (u"{id:>5}  {date:10.10}  {description:40.40} "
+                + u"{0:30.30} "
+              + u"{1: 8.2f}              "
+              + u"{2: 8.2f}")
+        line_out = (u"{id:>5}  {date:10.10}  {description:40.40} "
+                + u"{0:30.30} "
+              + u"             {1: 8.2f} "
+              + u"{2: 8.2f}")
 
         s =  u'Account: {} (type: {})\n'.format(self.name, self.type)
         s += u''.join('-' for c in s) + '\n'
 
+        # balance sign is inverted for income or credit account
+        sign = -1 if self.type == 'income' or self.type == 'credit' else 1
+
         transactions = self.transactions()
         for transaction in transactions[limit:]:
-            s += line.format(**transaction) + '\n'
+
+            # identify account 2
+            if transaction['source'] == self.name:
+                account_2 = transaction['destination']
+                direction = 'in' if transaction['amount'] < 0 else 'out'
+            else:
+                account_2 = transaction['source']
+                direction = 'in' if transaction['amount'] > 0 else 'out'
+
+            print(direction)
+
+            if direction == 'in':
+                s += line_in.format( account_2, abs(transaction['amount']), 
+                        sign * transaction['balance'],
+                        **transaction
+                        ) + '\n'
+            else:
+                s += line_out.format( account_2, abs(transaction['amount']),
+                        sign * transaction['balance'],
+                        **transaction
+                        ) + '\n'
 
         if limit is None:
             s += u'Number of transactions: {}'.format(len(transactions))
@@ -177,12 +230,18 @@ class Ledger:
         s =  u'List of accounts:\n'
         s += u''.join('-' for c in s) + '\n'
 
+        # sort accounts by type
+        a_by_t = dict()
+        for a_type in allowed_account_types:
+            a_by_t[a_type] = []
+        for a in self.accounts:
+            a_by_t[self[a].type].append(a)
+
         # Print each account category separately
-        for a_type in sorted(allowed_account_types):
+        for a_type in allowed_account_types:
             s += a_type.upper() + ':\n'
-            for account in sorted(self.accounts):
-                if self[account].type == a_type:
-                    s += '  ' + self[account].__str__() + '\n'
+            for a in sorted(a_by_t[a_type]):
+                s += '  ' + '{:30.30}  {: 12.2f}'.format(self[a].name, self[a].balance()) + '\n'
             s += '\n'
 
         # remove final newline
