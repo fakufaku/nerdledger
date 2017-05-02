@@ -17,6 +17,7 @@ from __future__ import division, print_function
 
 import dataset
 import datetime
+import yaml
 
 allowed_account_types = [
     'bank',
@@ -328,3 +329,71 @@ class Ledger:
             s = self[new_transaction['source']].balance_sheet(limit=5)
             s += self[new_transaction['destination']].balance_sheet(limit=5)
             print(s, end='')
+
+    def batch(self, filename):
+        '''
+        Process a batch of transactions
+
+        Parameters
+        ----------
+        filename: str
+            the name of the file containing all the transactions
+        '''
+
+        with open(filename, 'r') as stream:
+            try:
+                transactions = yaml.load(stream)
+            except yaml.YAMLError as exc:
+                print(exc)
+                return
+
+
+            # Now check that the transaction is valid
+            is_there_a_problem = False
+            for t in transactions:
+
+                problem_here = False
+                error_string =  'Error: malformed entry\n'
+                error_string += '  ' + yaml.dump(t)
+
+                if 'from' not in t:
+                    error_string += '  - Missing \'from\' field\n'
+                    problem_here = True
+
+                if 'to' not in t:
+                    error_string += '  - Missing \'to\' field\n'
+                    problem_here = True
+
+                if 'description' not in t:
+                    error_string += '  - Missing \'description\' field\n'
+                    problem_here = True
+
+                if 'date' not in t:
+                    error_string += '  - Missing \'date\' field\n'
+                    problem_here = True
+
+                if 'amount' not in t:
+                    error_string += '  - Missing \'amount\' field\n'
+                    problem_here = True
+
+                if t['from'] not in self.accounts:
+                    error_string += '  - Source account {} does not exist\n'.format(t['from'])
+                    problem_here = True
+
+                if t['to'] not in self.accounts:
+                    error_string += '  - Destination account {} does not exist\n'.format(t['from'])
+                    problem_here = True
+
+                if isinstance(t['date'], datetime.date):
+                    t['date'] = datetime.datetime.combine(t['date'], datetime.time(0,0))
+                elif isinstance(t['date'], datetime.datetime):
+                    pass
+                else:
+                    error_string += '  - Date malformed, use YYYY-MM-DD format\n'
+                    problem_here = True
+
+                # display all errors together
+                if problem_here:
+                    is_there_a_problem = True
+                    print(error_string)
+
