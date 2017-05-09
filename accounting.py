@@ -26,6 +26,87 @@ allowed_account_types = [
     'expense',
     ]
 
+class Transaction:
+    '''
+    Attributes
+    ----------
+    id: int
+        the transaction id in the database
+    amount: float
+        the amount of money transfered
+    source: accounting.Account
+        the account where the transaction is originating
+    destination: accounting.Account
+        the account where the money goes
+    description: str
+        an informative sentence
+    date: datetime.datetime
+        the date of when the transaction was done
+    date_created: datetime.datetime
+        the date the transaction was entered in the database
+    '''
+
+    def __init__(self,
+            amount=None, destination=None, source=None,
+            description=None, date=None, date_created=None,
+            db=None):
+
+        if amount is None:
+            raise ValueError('The amount of a transaction needs to be specified')
+
+        if not isinstance(amount, (int, float)):
+            raise ValueError('The amount should be a numeric type (int or float)')
+
+        # amount and description are straightforward
+        self.amount = amount
+        self.description = description if description is not None else ''
+
+        # source account name
+        if isinstance(source, Account):
+            self.source = source.name
+        else:
+            raise ValueError('Accounts should be Account objects')
+
+        # destination account name
+        if isinstance(destination, Account):
+            self.destination = destination.name
+        else:
+            raise ValueError('Accounts should be Account objects')
+
+        # parse the date
+        if date is not None:
+            if isinstance(date, datetime.datetime):
+                self.date = date
+            elif isinstance(date, str):
+                self.date = datetime.datetime.strptime(date, '%Y-%m-%d')
+            else:
+                raise ValueError('date should be a string or a datetime.datetime object')
+        else:
+            self.date = datetime.datetime.now()
+
+        # timestamp creation of transaction
+        if date_created is None:
+            self.date_created = datetime.datetime.now()
+        else:
+            if isinstance(date_created, datetime.datetime):
+                self.date_created = date_created
+            else:
+                raise ValueError('date_created should be a datetime.datetime object')
+
+    @staticmethod
+    def load(id, db):
+        '''
+        Parameters
+        ----------
+        id: int
+            transaction id in the database
+        db: dataset.Database
+            the database object
+        '''
+        trans = db['transactions'].find_one(id=id)
+
+        return Transaction(**trans)
+
 class Account:
     '''
     Attributes
@@ -172,8 +253,6 @@ class Account:
                 account_2 = transaction['source']
                 direction = 'in' if transaction['amount'] > 0 else 'out'
 
-            print(direction)
-
             if direction == 'in':
                 s += line_in.format( account_2, abs(transaction['amount']), 
                         sign * transaction['balance'],
@@ -313,7 +392,7 @@ class Ledger:
         if date is not None:
             if isinstance(date, datetime.datetime):
                 new_transaction['date'] = date
-            elif isinstance(destination_account, str):
+            elif isinstance(date, str):
                 new_transaction['date'] = datetime.datetime.strptime(date, '%Y-%m-%d')
         else:
             new_transaction['date'] = datetime.datetime.now()
@@ -349,7 +428,7 @@ class Ledger:
 
 
             # Now check that the transaction is valid
-            is_there_a_problem = False
+            a_problem = False
             for t in transactions:
 
                 problem_here = False
@@ -394,6 +473,15 @@ class Ledger:
 
                 # display all errors together
                 if problem_here:
-                    is_there_a_problem = True
+                    a_problem = True
                     print(error_string)
 
+        if not a_problem:
+            for t in transactions:
+                self.transfer(
+                        t['amount'], t['from'], t['to'],
+                        description=t['description'], date=t['date'],
+                        summary=False
+                        )
+        else:
+            print('The file was not processed due to some errors.')
