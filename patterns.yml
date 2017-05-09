@@ -1,0 +1,19 @@
+- in_text: ['aliexpress']
+  in_type: []
+  to: electronics
+- in_text: ['amazon', 'aws']
+  in_type: ['services commerciaux divers']
+  to: epfl_professional
+- in_text: ['amazon', 'payments']
+  in_type: ['autres marqueteurs directs']
+  to: things
+- in_text: ['cff', 'sbb', 'ffs']
+  in_type: ['transport']
+  to: transport
+- in_text: []
+  in_type: ['restaurant']
+  to: entertainment
+- in_text: ['spotify']
+  in_type: []
+  to: entertainment
+
