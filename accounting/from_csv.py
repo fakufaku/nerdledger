@@ -27,6 +27,25 @@ def match(text, typ, rule):
     return True
 
 def ubs_visa(filename, output=None, start_date=None, encoding='latin1', rule_file=None):
+    '''
+    This function will convert a CSV from UBS ebanking to YAML
+    file that can be edited for processing by the ledger
+
+    Parameters
+    ----------
+
+    filename: str
+        the CSV file name
+    output: str, optional
+        the name of the YAML output file
+    start_date: str or Datetime object (optional)
+        ignore entries with date older than this
+    encoding: str, optional
+        the encoding of the file
+    rule_file: str
+        a file that contains rule to automatically classify the entries in the ledger
+    '''
+        
 
     # if no name is given, just reuse same location
     if output is None:
